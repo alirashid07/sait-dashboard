@@ -211,11 +211,13 @@ export default function Dashboard() {
     const tableData = report
       .filter((row) => !filterNonCompliant || row["Compliance Score"] === 0)
       .map((row) =>
-        visibleColumns.map((col) =>
-          col === "Omission" && row[col as keyof ReportRow]
-            ? `${row[col as keyof ReportRow]!.reason}: ${row[col as keyof ReportRow]!.explanation}`
-            : row[col as keyof ReportRow] || "-"
-        )
+        visibleColumns.map((col) => {
+          const value = row[col as keyof ReportRow];
+          if (col === "Omission" && value && typeof value === "object" && "reason" in value) {
+            return `${value.reason}: ${value.explanation}`;
+          }
+          return value ?? "-";
+        })
       );
     autoTable(doc, {
       head: [visibleColumns],
@@ -236,10 +238,11 @@ export default function Dashboard() {
       .map((row) => {
         const rowData: Record<string, string | number> = {};
         visibleColumns.forEach((col) => {
+          const value = row[col as keyof ReportRow];
           rowData[col] =
-            col === "Omission" && row[col as keyof ReportRow]
-              ? `${row[col as keyof ReportRow]!.reason}: ${row[col as keyof ReportRow]!.explanation}`
-              : row[col as keyof ReportRow] || "-";
+            col === "Omission" && value && typeof value === "object" && "reason" in value
+              ? `${value.reason}: ${value.explanation}`
+              : value ?? "-";
         });
         return rowData;
       });
@@ -361,6 +364,7 @@ export default function Dashboard() {
               <div style={{ margin: "20px 0" }}>
                 <h3>{t("customize_report")}</h3>
                 <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                 学问
                   {Object.keys(showColumns).map((col) => (
                     <label key={col}>
                       <input
