@@ -6,8 +6,8 @@ import * as XLSX from "xlsx";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 import { useTranslation } from "react-i18next";
 import Link from "next/link";
-import Image from "next/image"; // Added for Next.js image optimization
-import "../i18n"; // i18n setup
+import Image from "next/image";
+import "../i18n";
 
 // Define interfaces for TypeScript
 interface ReportRow {
@@ -29,6 +29,15 @@ interface ChartData {
   avgScore: number;
 }
 
+interface ShowColumns {
+  Standard: boolean;
+  Requirement: boolean;
+  "Compliance Score": boolean;
+  Remarks: boolean;
+  Omission: boolean;
+  "Sector Ref": boolean;
+}
+
 export default function Dashboard() {
   const { t, i18n } = useTranslation();
   const router = useRouter();
@@ -39,7 +48,7 @@ export default function Dashboard() {
   const [queryResult, setQueryResult] = useState<QueryResult | null>(null);
   const [isQueryLoading, setIsQueryLoading] = useState(false);
   const [docId, setDocId] = useState<string>("");
-  const [showColumns, setShowColumns] = useState({
+  const [showColumns, setShowColumns] = useState<ShowColumns>({
     Standard: true,
     Requirement: true,
     "Compliance Score": true,
@@ -196,12 +205,16 @@ export default function Dashboard() {
   const downloadPDF = () => {
     const doc = new jsPDF();
     doc.text(t("compliance_report", { type: complianceType }), 10, 10);
-    const visibleColumns = Object.keys(showColumns).filter((col) => showColumns[col]);
+    const visibleColumns = Object.keys(showColumns).filter(
+      (col) => showColumns[col as keyof ShowColumns]
+    );
     const tableData = report
       .filter((row) => !filterNonCompliant || row["Compliance Score"] === 0)
       .map((row) =>
         visibleColumns.map((col) =>
-          col === "Omission" && row[col] ? `${row[col].reason}: ${row[col].explanation}` : row[col] || "-"
+          col === "Omission" && row[col as keyof ReportRow]
+            ? `${row[col as keyof ReportRow]!.reason}: ${row[col as keyof ReportRow]!.explanation}`
+            : row[col as keyof ReportRow] || "-"
         )
       );
     autoTable(doc, {
@@ -215,13 +228,18 @@ export default function Dashboard() {
   };
 
   const downloadExcel = () => {
-    const visibleColumns = Object.keys(showColumns).filter((col) => showColumns[col]);
+    const visibleColumns = Object.keys(showColumns).filter(
+      (col) => showColumns[col as keyof ShowColumns]
+    );
     const tableData = report
       .filter((row) => !filterNonCompliant || row["Compliance Score"] === 0)
       .map((row) => {
         const rowData: Record<string, string | number> = {};
         visibleColumns.forEach((col) => {
-          rowData[col] = col === "Omission" && row[col] ? `${row[col].reason}: ${row[col].explanation}` : row[col] || "-";
+          rowData[col] =
+            col === "Omission" && row[col as keyof ReportRow]
+              ? `${row[col as keyof ReportRow]!.reason}: ${row[col as keyof ReportRow]!.explanation}`
+              : row[col as keyof ReportRow] || "-";
         });
         return rowData;
       });
@@ -347,9 +365,12 @@ export default function Dashboard() {
                     <label key={col}>
                       <input
                         type="checkbox"
-                        checked={showColumns[col as keyof typeof showColumns]}
+                        checked={showColumns[col as keyof ShowColumns]}
                         onChange={() =>
-                          setShowColumns((prev) => ({ ...prev, [col]: !prev[col as keyof typeof showColumns] }))
+                          setShowColumns((prev) => ({
+                            ...prev,
+                            [col]: !prev[col as keyof ShowColumns],
+                          }))
                         }
                       />
                       {t(col.toLowerCase().replace(" ", "_"))}
