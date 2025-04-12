@@ -6,16 +6,37 @@ import * as XLSX from "xlsx";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 import { useTranslation } from "react-i18next";
 import Link from "next/link";
-import "../i18n"; // i18n setup (though redundant with _app.tsx, kept for clarity)
+import Image from "next/image"; // Added for Next.js image optimization
+import "../i18n"; // i18n setup
+
+// Define interfaces for TypeScript
+interface ReportRow {
+  Standard: string;
+  Requirement: string;
+  "Compliance Score": number;
+  Remarks: string;
+  Omission: { reason: string; explanation: string } | null;
+  "Sector Ref": string | null;
+}
+
+interface QueryResult {
+  answer: string;
+  details: string;
+}
+
+interface ChartData {
+  standard: string;
+  avgScore: number;
+}
 
 export default function Dashboard() {
   const { t, i18n } = useTranslation();
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
-  const [report, setReport] = useState<any[]>([]);
+  const [report, setReport] = useState<ReportRow[]>([]);
   const [complianceType, setComplianceType] = useState<"GRI" | "IFRS">("GRI");
   const [query, setQuery] = useState<string>("");
-  const [queryResult, setQueryResult] = useState<{ answer: string; details: string } | null>(null);
+  const [queryResult, setQueryResult] = useState<QueryResult | null>(null);
   const [isQueryLoading, setIsQueryLoading] = useState(false);
   const [docId, setDocId] = useState<string>("");
   const [showColumns, setShowColumns] = useState({
@@ -80,26 +101,26 @@ export default function Dashboard() {
       setUploadProgress(30);
 
       const analysisProgressInterval = setInterval(() => {
-        setUploadProgress((prev) => (prev < 100 ? prev + 10 : 100));
+        setUploadProgress((prev) => (prev < 100 ? prev + 10 : prev));
       }, 500);
 
       const analyzeRes = await fetch(
         `http://localhost:8000/analyze/${doc_id}?compliance_type=${complianceType}&lang=${i18n.language}`,
         { signal: controller.signal }
       );
-      const { report } = await analyzeRes.json();
+      const { report: rawReport } = await analyzeRes.json();
 
-      console.log("Raw Report Data:", report);
-      report.forEach((row: any, index: number) => {
+      console.log("Raw Report Data:", rawReport);
+      rawReport.forEach((row: ReportRow, index: number) => {
         console.log(`Row ${index} - Remarks: "${row.Remarks}", Omission:`, row.Omission);
       });
 
-      const filteredReport = report.filter((row: any) => {
+      const filteredReport = rawReport.filter((row: ReportRow) => {
         if (row.Omission && row.Omission.reason) {
           return row.Omission.reason.toLowerCase() !== "not applicable";
         }
         return true;
-      });
+      }) as ReportRow[];
 
       console.log("Filtered Report Data:", filteredReport);
       setReport(filteredReport);
@@ -107,13 +128,22 @@ export default function Dashboard() {
       clearInterval(progressInterval);
       clearInterval(analysisProgressInterval);
       setUploadProgress(100);
-    } catch (error) {
-      if (error.name === "AbortError") {
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === "AbortError") {
         console.log("Analysis cancelled");
         setReport([]);
       } else {
         console.error("Error:", error);
-        setReport([{ Standard: t("error"), Requirement: error.message, "Compliance Score": 0, Remarks: t("failed_to_process"), Omission: null, "Sector Ref": null }]);
+        setReport([
+          {
+            Standard: t("error"),
+            Requirement: error instanceof Error ? error.message : String(error),
+            "Compliance Score": 0,
+            Remarks: t("failed_to_process"),
+            Omission: null,
+            "Sector Ref": null,
+          },
+        ]);
       }
     } finally {
       setIsAnalyzing(false);
@@ -146,7 +176,7 @@ export default function Dashboard() {
         .some((field) => field?.includes(lowerQuery))
     );
 
-    let answer, details;
+    let answer: string, details: string;
     if (matchingRows.length > 0) {
       answer = t("query_found");
       details = `${matchingRows.length} matching item(s) found:\n`;
@@ -189,7 +219,7 @@ export default function Dashboard() {
     const tableData = report
       .filter((row) => !filterNonCompliant || row["Compliance Score"] === 0)
       .map((row) => {
-        const rowData: any = {};
+        const rowData: Record<string, string | number> = {};
         visibleColumns.forEach((col) => {
           rowData[col] = col === "Omission" && row[col] ? `${row[col].reason}: ${row[col].explanation}` : row[col] || "-";
         });
@@ -201,15 +231,15 @@ export default function Dashboard() {
     XLSX.writeFile(wb, `${complianceType}_compliance_report.xlsx`);
   };
 
-  const chartData = report.reduce((acc, row) => {
+  const chartData = report.reduce((acc: ChartData[], row) => {
     const standard = row.Standard;
-    if (!acc.find((item: any) => item.standard === standard)) {
+    if (!acc.find((item) => item.standard === standard)) {
       const standardRows = report.filter((r) => r.Standard === standard);
       const avgScore = standardRows.reduce((sum, r) => sum + r["Compliance Score"], 0) / standardRows.length;
       acc.push({ standard, avgScore: Math.round(avgScore) });
     }
     return acc;
-  }, [] as any[]);
+  }, []);
 
   const handleLogout = () => {
     localStorage.removeItem("isAuthenticated");
@@ -221,7 +251,7 @@ export default function Dashboard() {
     <>
       <header className="header">
         <div className="header-left">
-          <img src="/logo.png" alt="SAIT Logo" className="header-logo" />
+          <Image src="/logo.png" alt="SAIT Logo" width={100} height={50} className="header-logo" />
         </div>
         <div className="auth-buttons">
           <select
@@ -317,8 +347,10 @@ export default function Dashboard() {
                     <label key={col}>
                       <input
                         type="checkbox"
-                        checked={showColumns[col]}
-                        onChange={() => setShowColumns((prev) => ({ ...prev, [col]: !prev[col] }))}
+                        checked={showColumns[col as keyof typeof showColumns]}
+                        onChange={() =>
+                          setShowColumns((prev) => ({ ...prev, [col]: !prev[col as keyof typeof showColumns] }))
+                        }
                       />
                       {t(col.toLowerCase().replace(" ", "_"))}
                     </label>
@@ -364,8 +396,16 @@ export default function Dashboard() {
                 </table>
               </div>
               <div style={{ margin: "20px 0", textAlign: "center" }}>
-                <button onClick={downloadPDF} className="download-button">{t("download_pdf")}</button>
-                <button onClick={downloadExcel} className="download-button" style={{ marginLeft: "10px" }}>{t("download_excel")}</button>
+                <button onClick={downloadPDF} className="download-button">
+                  {t("download_pdf")}
+                </button>
+                <button
+                  onClick={downloadExcel}
+                  className="download-button"
+                  style={{ marginLeft: "10px" }}
+                >
+                  {t("download_excel")}
+                </button>
               </div>
               <div style={{ margin: "20px 0" }}>
                 <h3>{t("ask_question")}</h3>
@@ -406,12 +446,18 @@ export default function Dashboard() {
                   <button onClick={handleQuery} disabled={isQueryLoading} className="ask-button">
                     {isQueryLoading ? t("loading") : t("ask")}
                   </button>
-                  <button onClick={() => setQuery("")} className="clear-button">{t("clear")}</button>
+                  <button onClick={() => setQuery("")} className="clear-button">
+                    {t("clear")}
+                  </button>
                 </div>
                 {queryResult && (
                   <div className="query-result">
-                    <p><strong>{t("answer")}:</strong> {queryResult.answer}</p>
-                    <p><strong>{t("details")}:</strong> {queryResult.details}</p>
+                    <p>
+                      <strong>{t("answer")}:</strong> {queryResult.answer}
+                    </p>
+                    <p>
+                      <strong>{t("details")}:</strong> {queryResult.details}
+                    </p>
                   </div>
                 )}
               </div>
